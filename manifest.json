@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Lyric Translate",
+    "description": "Right-click a lyric line to swap it in-place to English. Right-click again to revert. Works with any lyrics plugin.",
+    "preview": "preview.png",
+    "main": "lyric-translate.js",
+    "readme": "README.md",
+    "tags": ["lyrics", "translation", "translate"]
+  }
+]
