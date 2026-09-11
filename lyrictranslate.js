@@ -8,12 +8,28 @@
   function log(...a) { console.log("[LyricTranslate]", ...a); }
   function notify(msg) { try { Spicetify?.showNotification?.(msg); } catch {} }
 
-  log("loaded v3");
+  log("loaded v4");
 
   function isLineLike(text) {
     if (!text) return false;
     text = text.trim();
     return text.length >= 2 && text.length <= MAX_CHARS && text.split("\n").length <= 2;
+  }
+
+  // Word-by-word karaoke markup wraps each word in its own span.
+  // Right-click lands on the word, so climb to the highest ancestor
+  // that is still line-sized — that is the full lyric line.
+  // The isLineLike cap stops the climb before the whole panel.
+  function climbToLine(el) {
+    let cur = el;
+    while (cur?.parentElement && cur !== document.body) {
+      const p = cur.parentElement;
+      if (p.closest?.("textarea, input, [contenteditable]")) break;
+      const t = (p.innerText || p.textContent || "").trim();
+      if (!isLineLike(t)) break;
+      cur = p;
+    }
+    return cur;
   }
 
   // Most precise: the deepest element under the cursor with line-sized text.
@@ -36,13 +52,17 @@
     const sel = window.getSelection?.();
     const selText = (sel?.toString() || "").trim();
     if (selText && sel.anchorNode?.parentElement) {
-      return { el: sel.anchorNode.parentElement, phrase: selText.slice(0, MAX_CHARS), fromSelection: true };
+      // Highlighted phrase wins, but anchor on the full line so
+      // word-span markup can't shrink the replacement target.
+      const line = climbToLine(sel.anchorNode.parentElement);
+      return { el: line, phrase: selText.slice(0, MAX_CHARS), fromSelection: true };
     }
-    // 2) No highlight: deepest small element under cursor = the line pointed at.
+    // 2) No highlight: deepest small element under cursor, climbed to the full line.
     const deep = deepestSmallAtPoint(e.clientX, e.clientY);
     if (deep) {
-      const t = (deep.innerText || deep.textContent || "").trim().slice(0, MAX_CHARS);
-      return { el: deep, phrase: t, fromSelection: false };
+      const line = climbToLine(deep);
+      const t = (line.innerText || line.textContent || "").trim().slice(0, MAX_CHARS);
+      return { el: line, phrase: t, fromSelection: false };
     }
     // 3) Fallback: e.target itself if line-sized, else walk up max 4 levels for first line-sized box.
     let el = e.target;
