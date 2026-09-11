@@ -8,8 +8,7 @@
   function log(...a) { console.log("[LyricTranslate]", ...a); }
   function notify(msg) { try { Spicetify?.showNotification?.(msg); } catch {} }
 
-  log("loaded v6");
-  setTimeout(() => notify("km28 LyricTranslate v6 loaded — right-click a lyric"), 2500);
+  log("ready");
 
   function isLineLike(text) {
     if (!text) return false;
@@ -24,6 +23,80 @@
   }
 
   function textOf(el) { return ((el && (el.innerText || el.textContent)) || "").trim(); }
+
+  function hasClass(elm, cls) {
+    try {
+      if (elm?.classList?.contains) return elm.classList.contains(cls);
+      return ((elm?.className?.toString?.() || "").split(/\s+/)).includes(cls);
+    } catch { return false; }
+  }
+
+  // Lucid renders every syllable in its own span and puts inter-word
+  // spacing in CSS (.trailing-whitespace:after { margin-right }), so
+  // innerText comes out spaceless ("Tesientessola..."). Rebuild spacing
+  // from word spans: a word carrying trailing-whitespace is followed
+  // by a space. Non-Lucud markup has no span.word descendants and
+  // falls back to plain text.
+  function wordsOf(scope) {
+    try {
+      if (!scope?.querySelectorAll) return [];
+      return [...scope.querySelectorAll("span.word")].filter((w) => textOf(w).length > 0);
+    } catch { return []; }
+  }
+
+  function spacedWords(words) {
+    return words.map((w) => textOf(w) + (hasClass(w, "trailing-whitespace") ? " " : "")).join("").trim();
+  }
+
+  // Nearest Lucid lyric line (lead or background) containing a node.
+  // Isolates the clicked vocal part so background vocals never leak in.
+  function lucidScope(node) {
+    try {
+      const base = node && node.nodeType === 3 ? node.parentElement : node;
+      return base?.closest?.("span.syllable-line") || null;
+    } catch { return null; }
+  }
+
+  // Full clean line text: only inside a Lucid syllable-line do word
+  // spans get re-spaced. Everywhere else uses rendered text, so normal
+  // karaoke word spans can never be mashed together.
+  function extractLineText(lineEl, hintNode) {
+    try {
+      const scope = (hintNode && lucidScope(hintNode)) || lucidScope(lineEl);
+      if (scope) {
+        const words = wordsOf(scope);
+        if (words.length) {
+          const spaced = spacedWords(words);
+          if (spaced.length >= 2) return spaced;
+        }
+        return textOf(scope);
+      }
+    } catch {}
+    return textOf(lineEl);
+  }
+
+  // Highlighted phrase in Lucid is spaceless too (CSS gaps aren't text).
+  // Rebuild it from the word spans intersecting the selection range.
+  function selectionPhrase(sel, lineEl) {
+    const raw = (sel.toString() || "").trim();
+    if (!raw) return "";
+    try {
+      const anchor = sel.anchorNode;
+      const scope = (anchor && lucidScope(anchor)) || lucidScope(lineEl) || lineEl;
+      const words = wordsOf(scope);
+      if (!words.length || !sel.rangeCount) return raw;
+      const range = sel.getRangeAt(0);
+      if (!range?.intersectsNode) return raw;
+      let out = "", hit = false;
+      for (const w of words) {
+        try {
+          if (range.intersectsNode(w)) { hit = true; out += textOf(w) + (hasClass(w, "trailing-whitespace") ? " " : ""); }
+        } catch {}
+      }
+      const cleaned = out.trim();
+      return hit && cleaned.length >= 2 ? cleaned : raw;
+    } catch { return raw; }
+  }
 
   // A grouping container (verse/panel) holds multiple sub-line blocks.
   // Translating it would swallow several lines, so refuse: without a
@@ -106,22 +179,18 @@
   }
 
   function pickLineEl(e) {
-    // 1) Highlighted phrase = most reliable. Use its container.
+    // 1) Highlighted phrase. In Lucid the highlight itself is spaceless
+    // (CSS gaps), so rebuild it from intersected word spans.
     const sel = window.getSelection?.();
-    const selText = (sel?.toString() || "").trim();
-    if (selText && sel.anchorNode?.parentElement) {
-      // Highlighted phrase wins, but anchor on the full line so
-      // word-span markup can't shrink the replacement target.
-      // If the climbed line doesn't contain the highlight (cross-line
-      // selection), prefer the anchor parent when it does.
+    const rawSel = (sel?.toString() || "").trim();
+    if (rawSel && sel.anchorNode?.parentElement) {
       const anchorParent = sel.anchorNode.parentElement;
-      const line = climbToLine(anchorParent);
-      const el = textOf(line).includes(selText)
-        ? line
-        : textOf(anchorParent).includes(selText)
-          ? anchorParent
-          : line;
-      return { el, phrase: selText.slice(0, MAX_CHARS), fromSelection: true };
+      // Lucid: swap the syllable-line span so background vocals
+      // sharing the wrapper are never touched.
+      const line = lucidScope(anchorParent) || climbToLine(anchorParent);
+      const phrase = selectionPhrase(sel, line).slice(0, MAX_CHARS);
+      if (!phrase || phrase.length < 2) return null;
+      return { el: line, phrase, fromSelection: true };
     }
     // 2) No highlight: deepest small element under cursor, climbed to the full line.
     // A small grouping container hit (click in a gap) is narrowed to the
@@ -135,10 +204,14 @@
         target = precise;
       }
       const line = climbToLine(target);
-      // Slice to chunk limits (not line limits) so decorated lines
-      // are translated whole, never truncated mid-line.
-      const t = textOf(line).slice(0, 400);
-      return { el: line, phrase: t, fromSelection: false };
+      // Lucid: the syllable-line span is both text source and swap
+      // target (isolates lead vs background vocals sharing a wrapper).
+      const lscope = lucidScope(target);
+      const tgt = lscope || line;
+      // Clean text: Lucid word spans are re-spaced via the clicked
+      // fragment's own lyric line (isolates lead vs background vocals).
+      const phrase = extractLineText(tgt, target).slice(0, 400);
+      return { el: tgt, phrase, fromSelection: false };
     }
     // 3) Fallback (elementsFromPoint missing): start from e.target.
     // If markup sets pointer-events:none on words, the target may be a
@@ -168,7 +241,9 @@
       // is no single line (translating here would swallow the panel).
       if (isGroupingContainer(el)) return null;
       const line = climbToLine(el);
-      return { el: line, phrase: textOf(line).slice(0, 400), fromSelection: false };
+      const lscope = lucidScope(el);
+      const tgt = lscope || line;
+      return { el: tgt, phrase: extractLineText(tgt, el).slice(0, 400), fromSelection: false };
     }
     return null;
   }
@@ -250,12 +325,13 @@
 
     const { el: lineEl, phrase, fromSelection } = picked;
 
-    // Toggle back: already translated -> restore original, no network.
+    // Toggle back: already translated -> restore original markup, no network.
+    // innerHTML (not text) so Lucid's karaoke spans and CSS spacing survive.
     if (lineEl.dataset?.ltTranslated === "1") {
       e.preventDefault();
       e.stopPropagation?.();
-      if (lineEl.dataset.ltOriginal) lineEl.innerText = lineEl.dataset.ltOriginal;
-      delete lineEl.dataset.ltOriginal;
+      if (lineEl.dataset.ltOriginalHTML) lineEl.innerHTML = lineEl.dataset.ltOriginalHTML;
+      delete lineEl.dataset.ltOriginalHTML;
       delete lineEl.dataset.ltTranslated;
       window.getSelection?.()?.removeAllRanges?.();
       return;
@@ -265,10 +341,11 @@
     e.preventDefault();
     e.stopPropagation?.();
 
-    const originalFull = (lineEl.innerText || lineEl.textContent || "").trim();
+    const originalFull = textOf(lineEl);
     try {
       const translated = await translateToEnglish(phrase);
-      if (!lineEl.dataset.ltOriginal) lineEl.dataset.ltOriginal = originalFull;
+      // Snapshot markup once so toggle-back restores karaoke spans.
+      if (!lineEl.dataset.ltOriginalHTML) lineEl.dataset.ltOriginalHTML = lineEl.innerHTML;
       lineEl.dataset.ltTranslated = "1";
       if (fromSelection && originalFull.includes(phrase)) {
         lineEl.innerText = originalFull.replace(phrase, translated);
