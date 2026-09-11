@@ -1,4 +1,4 @@
-# Lyric Translate
+# km28 ▸ LyricTranslate
 
 Right-click a lyric line → that phrase swaps in-place to English. Right-click again to revert.
 

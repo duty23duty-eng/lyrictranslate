@@ -1,4 +1,4 @@
-// NAME: Lyric Translate
+// NAME: km28 ▸ LyricTranslate
 // AUTHOR: kilomaster28
 // DESCRIPTION: Right-click a lyric line to swap that phrase in-place to English. Right-click again to revert. Works with any lyrics plugin.
 

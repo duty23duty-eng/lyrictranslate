@@ -1,6 +1,6 @@
 [
   {
-    "name": "LyricTranslate",
+    "name": "km28 ▸ LyricTranslate",
     "description": "Right-click a lyric line to swap it in-place to English. Right-click again to revert. Works with any lyrics plugin.",
     "preview": "preview.png",
     "main": "lyrictranslate.js",
