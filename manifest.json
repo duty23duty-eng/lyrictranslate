@@ -5,6 +5,9 @@
     "preview": "preview.png",
     "main": "lyric-translate.js",
     "readme": "README.md",
+    "authors": [
+      { "name": "kilomaster28", "url": "https://github.com/duty23duty-eng" }
+    ],
     "tags": ["lyrics", "translation", "translate"]
   }
 ]
